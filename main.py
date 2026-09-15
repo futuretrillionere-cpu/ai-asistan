@@ -1,90 +1,125 @@
 import streamlit as st
 import google.generativeai as genai
+import os
+from dotenv import load_dotenv
 from supabase import create_client, Client
+from PIL import Image
+from pypdf import PdfReader
 
-st.set_page_config(page_title="AI Asistan - SaaS", page_icon="🤖", layout="wide")
+load_dotenv()
 
-try:
-    SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
-    SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "")
+# Sayfa Yapılandırması
+st.set_page_config(page_title="AI Asistan - SaaS", page_icon="🚀", layout="wide")
+
+# API ve Supabase Bağlantı Bilgilerini Al (Environment veya Streamlit Secrets)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY", "")
+SUPABASE_URL = os.getenv("SUPABASE_URL") or st.secrets.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY") or st.secrets.get("SUPABASE_KEY", "")
+
+# Gemini Yapılandırması
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+
+# Supabase İstemcisi Oluşturma
+@st.cache_resource
+def init_supabase():
     if SUPABASE_URL and SUPABASE_KEY:
-        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    else:
-        supabase = None
-except Exception:
-    supabase = None
+        try:
+            return create_client(SUPABASE_URL, SUPABASE_KEY)
+        except Exception:
+            return None
+    return None
 
-st.title("🤖 AI Asistan - SaaS Sürümü")
+supabase = init_supabase()
 
-st.sidebar.header("🔐 Kullanıcı Paneli")
-
+# Oturum Durumu Yönetimi (Session State)
 if "user" not in st.session_state:
-    st.session_state.user = None
+    st.session_state["user"] = None
 
-if "credits" not in st.session_state:
-    st.session_state.credits = 5
+# Yan Menü (Giriş / Kayıt Paneli)
+st.sidebar.title("🔐 Kullanıcı Paneli")
 
-if not st.session_state.user:
-    auth_mode = st.sidebar.radio("İşlem Seçin", ["Giriş Yap", "Kayıt Ol"])
-    email = st.sidebar.text_input("E-posta")
-    password = st.sidebar.text_input("Şifre", type="password")
+if st.session_state["user"] is None:
+    islem = st.sidebar.radio("İşlem Seçin", ["Giriş Yap", "Kayıt Ol"])
     
-    if st.sidebar.button("Onayla"):
-        if supabase:
-            try:
-                if auth_mode == "Kayıt Ol":
-                    response = supabase.auth.sign_up({"email": email, "password": password})
+    email = st.sidebar.text_input("E-posta")
+    sifre = st.sidebar.text_input("Şifre", type="password")
+    
+    if islem == "Kayıt Ol":
+        if st.sidebar.button("Kayıt Ol"):
+            if not supabase:
+                st.sidebar.error("Supabase bağlantısı eksik veya hatalı!")
+            elif email and sifre:
+                try:
+                    response = supabase.auth.sign_up({"email": email, "password": sifre})
                     st.sidebar.success("Kayıt başarılı! Lütfen giriş yapın.")
-                else:
-                    response = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                    st.session_state.user = response.user
-                    st.sidebar.success("Giriş başarılı!")
-                    st.rerun()
-            except Exception as e:
-                st.sidebar.error(f"Hata: {e}")
-        else:
-            if email and password:
-                st.session_state.user = {"email": email}
-                st.sidebar.success("Test modunda giriş yapıldı!")
-                st.rerun()
+                except Exception as e:
+                    st.sidebar.error(f"Kayıt hatası: {e}")
             else:
                 st.sidebar.warning("Lütfen alanları doldurun.")
-else:
-    user_email = st.session_state.user.get('email', 'Kullanıcı') if isinstance(st.session_state.user, dict) else st.session_state.user.email
-    st.sidebar.write(f"Hoş geldin, **{user_email}**")
-    
-    st.sidebar.metric(label="Kalan Kredi", value=st.session_state.credits)
-    
+        else:
+         st.sidebar.success(f"Giriş yapıldı:\n{getattr(st.session_state['user'], 'email', 'Kullanıcı')}")
     if st.sidebar.button("Çıkış Yap"):
-        st.session_state.user = None
+        if supabase:
+            try:
+                supabase.auth.sign_out()
+            except Exception:
+                pass
+        st.session_state["user"] = None
         st.rerun()
 
-    st.sidebar.divider()
-    api_key_input = st.sidebar.text_input("Gemini API Key", type="password")
-    selected_model = st.sidebar.selectbox("Model Seç", ["gemini-1.5-flash", "gemini-1.5-pro"])
+# Ana Ekran
+st.title("🚀 AI Asistan - SaaS Sürümü")
 
-if st.session_state.user:
-    if st.session_state.credits > 0:
-        user_prompt = st.text_area("Yapay zekaya bir şeyler sorun...")
-        
-        if st.button("Gönder") and user_prompt:
-            if not api_key_input:
-                st.warning("Lütfen sol menüden Gemini API Key girin.")
-            else:
-                try:
-                    genai.configure(api_key=api_key_input)
-                    model = genai.GenerativeModel(selected_model)
-                    with st.spinner("Yapay zeka düşünüyor..."):
-                        response = model.generate_content(user_prompt)
-                        st.markdown("### Cevap:")
-                        st.write(response.text)
-                        
-                        # Kredi düşürme
-                        st.session_state.credits -= 1
-                        st.rerun()
-                except Exception as e:
-                    st.error(f"Bir hata oluştu: {e}")
-    else:
-        st.error("Krediniz bitti!")
+if not GEMINI_API_KEY:
+    st.warning("⚠️ Lütfen GEMINI_API_KEY anahtarınızı ekleyin (.env veya Secrets).")
+elif st.session_state["user"] is None:
+    st.info("👋 Devam etmek için lütfen sol menüden giriş yapın veya kayıt olun.")
 else:
-    st.info("Sol menüden giriş yapın.")
+    st.markdown("---")
+    
+    # Dosya Yükleme Alanı (PDF ve Görsel)
+    uploaded_file = st.file_uploader("Bir görsel veya PDF belgesi yükleyin (İsteğe bağlı)", type=["png", "jpg", "jpeg", "pdf"])
+    
+    file_content = None
+    file_type = None
+    
+    if uploaded_file is not None:
+        file_extension = uploaded_file.name.split(".")[-1].lower()
+        if file_extension in ["png", "jpg", "jpeg"]:
+            file_type = "image"
+            file_content = Image.open(uploaded_file)
+            st.image(file_content, caption="Yüklenen Görsel", width=300)
+        elif file_extension == "pdf":
+            file_type = "pdf"
+            reader = PdfReader(uploaded_file)
+            text = ""
+            for page in reader.pages:
+                extracted = page.extract_text()
+                if extracted:
+                    text += extracted + "\n"
+            file_content = text
+            st.success(f"📄 PDF başarıyla okundu! ({len(reader.pages)} sayfa)")
+
+    # Kullanıcı Girdi Alanı
+    prompt = st.text_area("Yapay zekaya ne sormak istersin?", placeholder="Sorunuzu buraya yazın...")
+    
+    if st.button("Gönder ve Analiz Et") and prompt:
+        try:
+            model = genai.GenerativeModel("gemini-2.5-flash")
+            with st.spinner("Yapay zeka düşünüyor..."):
+                
+                # İçerik türüne göre model çağrısı
+              if file_type == "image" and file_content:
+                    response = model.generate_content([file_content, prompt])
+              elif file_type == "pdf" and file_content:
+                    combined_prompt = f"Aşağıdaki PDF metnini inceleyerek soruyu yanıtla:\n\nMetin:\n{file_content}\n\nSoru: {prompt}"
+                    response = model.generate_content(combined_prompt)
+              else:
+                    response = model.generate_content(prompt)
+                
+              st.markdown("### 💡 Cevap:")
+              st.write(response.text)
+                
+        except Exception as e:
+            st.error(f"Bir hata oluştu: {e}")
