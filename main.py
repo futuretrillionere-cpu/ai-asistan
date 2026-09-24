@@ -6,6 +6,7 @@ from supabase import create_client, Client
 from pypdf import PdfReader
 import base64
 from io import BytesIO
+from gtts import gTTS
 
 load_dotenv()
 
@@ -46,6 +47,10 @@ if "pdf_metni" not in st.session_state:
     st.session_state.pdf_metni = ""
 if "pdf_adi" not in st.session_state:
     st.session_state.pdf_adi = ""
+if "son_ses_boyutu" not in st.session_state:
+    st.session_state.son_ses_boyutu = None
+
+
 # --------------------------------------------------------------------------
 # YARDIMCI FONKSİYONLAR - AUTH
 # --------------------------------------------------------------------------
@@ -111,6 +116,33 @@ def gorsel_olustur(aciklama: str):
 
 
 # --------------------------------------------------------------------------
+# YARDIMCI FONKSİYON - SESLİ SOHBET
+# --------------------------------------------------------------------------
+def ses_kaydini_cevapla(ses_bytes: bytes):
+    try:
+        model = genai.GenerativeModel(MODEL_NAME)
+        yanit = model.generate_content(
+            [
+                "Bu ses kaydında kullanıcı bir şey söylüyor. Önce ne söylediğini kısaca "
+                "anla, sonra sorusuna veya isteğine Türkçe olarak doğal bir şekilde cevap ver.",
+                {"mime_type": "audio/wav", "data": ses_bytes},
+            ]
+        )
+        return yanit.text, None
+    except Exception as e:
+        return None, f"Ses işlenirken hata oluştu: {e}"
+def metni_sese_cevir(metin: str):
+    try:
+        tts = gTTS(text=metin, lang="tr")
+        ses_buffer = BytesIO()
+        tts.write_to_fp(ses_buffer)
+        ses_buffer.seek(0)
+        return ses_buffer, None
+    except Exception as e:
+        return None, f"Ses oluşturulurken hata oluştu: {e}"
+
+
+# --------------------------------------------------------------------------
 # YAN MENÜ - GİRİŞ / KAYIT PANELİ
 # --------------------------------------------------------------------------
 with st.sidebar:
@@ -143,8 +175,7 @@ with st.sidebar:
             st.rerun()
 
         st.divider()
-
-        # --- PDF YÜKLEME ALANI ---
+# --- PDF YÜKLEME ALANI ---
         st.subheader("📄 PDF Yükle")
         yuklenen_pdf = st.file_uploader("Bir PDF dosyası seç", type=["pdf"])
 
@@ -152,14 +183,14 @@ with st.sidebar:
             if yuklenen_pdf.name != st.session_state.pdf_adi:
                 with st.spinner("PDF okunuyor..."):
                     metin = pdf_metnini_cikar(yuklenen_pdf)
+                if metin:
                     st.session_state.pdf_metni = metin
                     st.session_state.pdf_adi = yuklenen_pdf.name
-                if metin:
                     st.success(f"'{yuklenen_pdf.name}' yüklendi ({len(metin)} karakter okundu).")
                 else:
                     st.warning("PDF'den metin çıkarılamadı (taranmış görsel olabilir).")
 
-if st.session_state.pdf_metni:
+        if st.session_state.pdf_metni:
             st.caption(f"Aktif belge: {st.session_state.pdf_adi}")
             if st.button("PDF'i kaldır"):
                 st.session_state.pdf_metni = ""
@@ -176,7 +207,7 @@ if st.session_state.user is None:
     st.info("👋 Devam etmek için lütfen sol menüden giriş yapın.")
     st.stop()
 
-sekme_sohbet, sekme_gorsel = st.tabs(["💬 Sohbet", "🎨 Görsel Oluştur"])
+sekme_sohbet, sekme_gorsel, sekme_ses = st.tabs(["💬 Sohbet", "🎨 Görsel Oluştur", "🎙️ Sesli Sohbet"])
 
 # --------------------------------------------------------------------------
 # SEKME 1 - SOHBET
@@ -188,10 +219,9 @@ with sekme_sohbet:
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+kullanici_mesaji = st.chat_input("Bir şeyler yaz...")
 
-    kullanici_mesaji = st.chat_input("Bir şeyler yaz...")
-
-    if kullanici_mesaji:
+if kullanici_mesaji:
         st.session_state.messages.append({"role": "user", "content": kullanici_mesaji})
         with st.chat_message("user"):
             st.markdown(kullanici_mesaji)
@@ -204,6 +234,7 @@ with sekme_sohbet:
                     gecmis_metin = "\n".join(
                         f"{m['role']}: {m['content']}" for m in st.session_state.messages[-10:]
                     )
+
                     if st.session_state.pdf_metni:
                         pdf_baglam = st.session_state.pdf_metni[:15000]
                         tam_prompt = (
@@ -226,7 +257,7 @@ with sekme_sohbet:
 
 # --------------------------------------------------------------------------
 # SEKME 2 - GÖRSEL OLUŞTURMA
-# --------------------------------------------------------------------------
+# -------------------------------------------------------------------------- 
 with sekme_gorsel:
     st.subheader("🎨 Yapay Zeka ile Görsel Oluştur")
     st.caption("Ne görmek istediğini yaz, senin için oluşturayım.")
@@ -250,7 +281,68 @@ with sekme_gorsel:
                 st.image(gorsel_verisi, caption=gorsel_aciklamasi, use_container_width=True)
                 st.download_button(
                     label="📥 Görseli indir",
-                     data=gorsel_verisi,
+                    data=gorsel_verisi,
                     file_name="olusturulan_gorsel.png",
                     mime="image/png",
                 )
+
+# --------------------------------------------------------------------------
+# SEKME 3 - SESLİ SOHBET
+# --------------------------------------------------------------------------with sekme_ses:
+    st.subheader("🎙️ Sesli Sohbet")
+    st.caption("Mikrofona konuş, yapay zeka seni dinleyip hem yazılı hem sesli cevap versin.")
+
+    ses_kaydi = st.audio_input("Konuşmak için tıkla ve kaydet")
+
+    if ses_kaydi is not None:
+        ses_bytes = ses_kaydi.getvalue()
+
+        # Aynı kaydı tekrar tekrar işlememek için boyut kontrolü
+        if ses_bytes != st.session_state.son_ses_boyutu:
+            st.session_state.son_ses_boyutu = ses_bytes
+
+            with st.spinner("Ses işleniyor ve cevap hazırlanıyor..."):
+                cevap_metni, hata = ses_kaydini_cevapla(ses_bytes)
+
+            if hata:
+                st.error(hata)
+            else:
+                st.markdown("**🤖 Cevap:**")
+                st.markdown(cevap_metni)
+
+                with st.spinner("Sesli cevap hazırlanıyor..."):
+                    ses_cevabi, ses_hata = metni_sese_cevir(cevap_metni)
+
+                if ses_hata:
+                    st.warning(ses_hata)
+                elif ses_cevabi:
+                    st.audio(ses_cevabi, format="audio/mp3")
+with sekme_ses:
+    st.subheader("🎙️ Sesli Sohbet")
+    st.caption("Mikrofona konuş, yapay zeka seni dinleyip hem yazılı hem sesli cevap versin.")
+
+    ses_kaydi = st.audio_input("Konuşmak için tıkla ve kaydet", key="ses_kayit_widget")
+
+    if ses_kaydi is not None:
+        ses_bytes = ses_kaydi.getvalue()
+
+        # Aynı kaydı tekrar tekrar işlememek için boyut kontrolü
+        if ses_bytes != st.session_state.son_ses_boyutu:
+            st.session_state.son_ses_boyutu = ses_bytes
+
+            with st.spinner("Ses işleniyor ve cevap hazırlanıyor..."):
+                cevap_metni, hata = ses_kaydini_cevapla(ses_bytes)
+
+            if hata:
+                st.error(hata)
+            else:
+                st.markdown("**🤖 Cevap:**")
+                st.markdown(cevap_metni)
+
+                with st.spinner("Sesli cevap hazırlanıyor..."):
+                    ses_cevabi, ses_hata = metni_sese_cevir(cevap_metni)
+
+                if ses_hata:
+                    st.warning(ses_hata)
+                elif ses_cevabi:
+                    st.audio(ses_cevabi, format="audio/mp3")
