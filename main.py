@@ -4,6 +4,8 @@ import os
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from pypdf import PdfReader
+import base64
+from io import BytesIO
 
 load_dotenv()
 
@@ -31,6 +33,7 @@ genai.configure(api_key=GEMINI_API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 MODEL_NAME = "gemini-3.5-flash"
+IMAGE_MODEL_NAME = "gemini-3.1-flash-image"
 
 # --------------------------------------------------------------------------
 # OTURUM DURUMU (session_state) BAŞLANGIÇ DEĞERLERİ
@@ -43,8 +46,6 @@ if "pdf_metni" not in st.session_state:
     st.session_state.pdf_metni = ""
 if "pdf_adi" not in st.session_state:
     st.session_state.pdf_adi = ""
-
-
 # --------------------------------------------------------------------------
 # YARDIMCI FONKSİYONLAR - AUTH
 # --------------------------------------------------------------------------
@@ -91,7 +92,25 @@ def pdf_metnini_cikar(yuklenen_dosya) -> str:
     except Exception as e:
         st.error(f"PDF okunurken hata oluştu: {e}")
         return ""
-    # --------------------------------------------------------------------------
+
+
+# --------------------------------------------------------------------------
+# YARDIMCI FONKSİYON - GÖRSEL OLUŞTURMA
+# --------------------------------------------------------------------------
+def gorsel_olustur(aciklama: str):
+    try:
+        model = genai.GenerativeModel(IMAGE_MODEL_NAME)
+        yanit = model.generate_content(aciklama)
+        for part in yanit.candidates[0].content.parts:
+            if hasattr(part, "inline_data") and part.inline_data is not None:
+                gorsel_verisi = part.inline_data.data
+                return gorsel_verisi, None
+        return None, "Model bir görsel döndürmedi."
+    except Exception as e:
+        return None, f"Görsel oluşturulurken hata oluştu: {e}"
+
+
+# --------------------------------------------------------------------------
 # YAN MENÜ - GİRİŞ / KAYIT PANELİ
 # --------------------------------------------------------------------------
 with st.sidebar:
@@ -140,7 +159,7 @@ with st.sidebar:
                 else:
                     st.warning("PDF'den metin çıkarılamadı (taranmış görsel olabilir).")
 
-        if st.session_state.pdf_metni:
+if st.session_state.pdf_metni:
             st.caption(f"Aktif belge: {st.session_state.pdf_adi}")
             if st.button("PDF'i kaldır"):
                 st.session_state.pdf_metni = ""
@@ -157,47 +176,81 @@ if st.session_state.user is None:
     st.info("👋 Devam etmek için lütfen sol menüden giriş yapın.")
     st.stop()
 
-if st.session_state.pdf_metni:
-    st.info(f"📄 Şu an '{st.session_state.pdf_adi}' belgesi hakkında konuşuyorsun. Bu belgeyle ilgili soru sorabilirsin.")
+sekme_sohbet, sekme_gorsel = st.tabs(["💬 Sohbet", "🎨 Görsel Oluştur"])
 
-# Sohbet geçmişini göster
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+# --------------------------------------------------------------------------
+# SEKME 1 - SOHBET
+# --------------------------------------------------------------------------
+with sekme_sohbet:
+    if st.session_state.pdf_metni:
+        st.info(f"📄 Şu an '{st.session_state.pdf_adi}' belgesi hakkında konuşuyorsun. Bu belgeyle ilgili soru sorabilirsin.")
 
-# Kullanıcıdan yeni mesaj al
-kullanici_mesaji = st.chat_input("Bir şeyler yaz...")
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
-if kullanici_mesaji:
-    st.session_state.messages.append({"role": "user", "content": kullanici_mesaji})
-    with st.chat_message("user"):
-        st.markdown(kullanici_mesaji)
+    kullanici_mesaji = st.chat_input("Bir şeyler yaz...")
 
-    with st.chat_message("assistant"):
-        with st.spinner("Düşünüyorum..."):
-            try:
-                model = genai.GenerativeModel(MODEL_NAME)
+    if kullanici_mesaji:
+        st.session_state.messages.append({"role": "user", "content": kullanici_mesaji})
+        with st.chat_message("user"):
+            st.markdown(kullanici_mesaji)
 
-                gecmis_metin = "\n".join(
-                    f"{m['role']}: {m['content']}" for m in st.session_state.messages[-10:]
-                )
+        with st.chat_message("assistant"):
+            with st.spinner("Düşünüyorum..."):
+                try:
+                    model = genai.GenerativeModel(MODEL_NAME)
 
-                if st.session_state.pdf_metni:
-                    pdf_baglam = st.session_state.pdf_metni[:15000]
-                    tam_prompt = (
-                        f"Aşağıda bir PDF belgesinin içeriği var. Kullanıcının sorularını "
-                        f"bu belgeye dayanarak cevapla.\n\n"
-                        f"--- BELGE İÇERİĞİ ---\n{pdf_baglam}\n--- BELGE SONU ---\n\n"
-                        f"--- KONUŞMA GEÇMİŞİ ---\n{gecmis_metin}"
+                    gecmis_metin = "\n".join(
+                        f"{m['role']}: {m['content']}" for m in st.session_state.messages[-10:]
                     )
-                else:
-                    tam_prompt = gecmis_metin
+                    if st.session_state.pdf_metni:
+                        pdf_baglam = st.session_state.pdf_metni[:15000]
+                        tam_prompt = (
+                            f"Aşağıda bir PDF belgesinin içeriği var. Kullanıcının sorularını "
+                            f"bu belgeye dayanarak cevapla.\n\n"
+                            f"--- BELGE İÇERİĞİ ---\n{pdf_baglam}\n--- BELGE SONU ---\n\n"
+                            f"--- KONUŞMA GEÇMİŞİ ---\n{gecmis_metin}"
+                        )
+                    else:
+                        tam_prompt = gecmis_metin
 
-                yanit = model.generate_content(tam_prompt)
-                cevap = yanit.text
-            except Exception as e:
-                cevap = f"Bir hata oluştu: {e}"
+                    yanit = model.generate_content(tam_prompt)
+                    cevap = yanit.text
+                except Exception as e:
+                    cevap = f"Bir hata oluştu: {e}"
 
-            st.markdown(cevap)
+                st.markdown(cevap)
 
-    st.session_state.messages.append({"role": "assistant", "content": cevap})
+        st.session_state.messages.append({"role": "assistant", "content": cevap})
+
+# --------------------------------------------------------------------------
+# SEKME 2 - GÖRSEL OLUŞTURMA
+# --------------------------------------------------------------------------
+with sekme_gorsel:
+    st.subheader("🎨 Yapay Zeka ile Görsel Oluştur")
+    st.caption("Ne görmek istediğini yaz, senin için oluşturayım.")
+
+    gorsel_aciklamasi = st.text_area(
+        "Görsel açıklaması",
+        placeholder="Örnek: Gün batımında deniz kenarında bir kale, sisli hava, gerçekçi stil",
+        height=100,
+    )
+
+    if st.button("🎨 Görsel Oluştur", type="primary"):
+        if not gorsel_aciklamasi.strip():
+            st.warning("Lütfen bir açıklama yaz.")
+        else:
+            with st.spinner("Görsel oluşturuluyor, bu biraz zaman alabilir..."):
+                gorsel_verisi, hata = gorsel_olustur(gorsel_aciklamasi)
+
+            if hata:
+                st.error(hata)
+            elif gorsel_verisi:
+                st.image(gorsel_verisi, caption=gorsel_aciklamasi, use_container_width=True)
+                st.download_button(
+                    label="📥 Görseli indir",
+                     data=gorsel_verisi,
+                    file_name="olusturulan_gorsel.png",
+                    mime="image/png",
+                )
