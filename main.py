@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import google.generativeai as genai
 import os
 from dotenv import load_dotenv
@@ -7,7 +8,27 @@ from pypdf import PdfReader
 import base64
 from io import BytesIO
 from gtts import gTTS
-
+def show_subscribe_button(user_email=""):
+    components.html(f"""
+    <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
+    <script>
+      Paddle.Environment.set("sandbox");
+      Paddle.Initialize({{ token: "test_05e821db9db0d7bd5b6075e5944" }});
+    </script>
+    <button id="subscribe-btn" style="
+        background-color:#FF5733; color:white; border:none;
+        padding:12px 24px; border-radius:8px; font-size:16px; cursor:pointer;">
+        Abone Ol - $10/ay
+    </button>
+    <script>
+      document.getElementById('subscribe-btn').onclick = function() {{
+        Paddle.Checkout.open({{
+          items: [{{ priceId: 'pri_01m3bz5752z2xwjbdnqe6njf7y', quantity: 1 }}],
+          customer: {{ email: "{user_email}" }}
+        }});
+      }};
+    </script>
+    """, height=100)
 load_dotenv()
 
 # --------------------------------------------------------------------------
@@ -173,6 +194,8 @@ with st.sidebar:
         if st.button("Çıkış Yap"):
             cikis_yap()
             st.rerun()
+            
+        show_subscribe_button(user_email=st.session_state.user.email)
 
         st.divider()
 # --- PDF YÜKLEME ALANI ---
