@@ -53,7 +53,14 @@ if not GEMINI_API_KEY or not SUPABASE_URL or not SUPABASE_KEY:
 
 genai.configure(api_key=GEMINI_API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
+def kullanici_pro_mu(email):
+    try:
+        result = supabase.table("profiles").select("is_pro").eq("email", email).execute()
+        if result.data and len(result.data) > 0:
+            return result.data[0]["is_pro"]
+    except:
+        pass
+    return False
 MODEL_NAME = "gemini-3.5-flash"
 IMAGE_MODEL_NAME = "gemini-3.1-flash-image"
 
@@ -195,7 +202,11 @@ with st.sidebar:
             cikis_yap()
             st.rerun()
             
-        show_subscribe_button(user_email=st.session_state.user.email)
+        pro_mu = kullanici_pro_mu(st.session_state.user.email)
+        if pro_mu:
+            st.success("✨ Pro üyesiniz! Tüm özellikler açık.")
+        else:
+            show_subscribe_button(user_email=st.session_state.user.email)
 
         st.divider()
 # --- PDF YÜKLEME ALANI ---
