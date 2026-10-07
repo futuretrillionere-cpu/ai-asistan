@@ -61,6 +61,24 @@ def kullanici_pro_mu(email):
     except:
         pass
     return False
+def soru_hakki_kontrol(email, is_pro):
+    from datetime import date
+    limit = 50 if is_pro else 10
+    bugun = str(date.today())
+    try:
+        r = supabase.table("profiles").select("daily_count,last_count_date").eq("email", email).execute()
+        satir = r.data[0]
+        sayi = satir["daily_count"]
+        if satir["last_count_date"] != bugun:
+            sayi = 0
+        if sayi >= limit:
+            return False, limit
+        supabase.table("profiles").update(
+            {"daily_count": sayi + 1, "last_count_date": bugun}
+        ).eq("email", email).execute()
+        return True, limit
+    except Exception:
+        return True, limit
 MODEL_NAME = "gemini-3.5-flash"
 IMAGE_MODEL_NAME = "gemini-3.1-flash-image"
 
@@ -256,6 +274,10 @@ with sekme_sohbet:
 kullanici_mesaji = st.chat_input("Bir şeyler yaz...")
 
 if kullanici_mesaji:
+        hak_var, limit = soru_hakki_kontrol(st.session_state.user.email, pro_mu)
+        if not hak_var:
+            st.warning(f"Bugünkü {limit} soru hakkın doldu. Yarın yenilenir.")
+            st.stop()
         st.session_state.messages.append({"role": "user", "content": kullanici_mesaji})
         with st.chat_message("user"):
             st.markdown(kullanici_mesaji)
