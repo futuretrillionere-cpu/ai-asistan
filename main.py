@@ -78,7 +78,7 @@ def soru_hakki_kontrol(email, is_pro):
         ).eq("email", email).execute()
         return True, limit
     except Exception:
-        return True, limit
+        return False, limit
 MODEL_NAME = "gemini-3.5-flash"
 IMAGE_MODEL_NAME = "gemini-3.1-flash-image"
 
