@@ -90,6 +90,18 @@ This policy explains what data ChatVexa collects and how we use it.
 """),
 }
 
+_sayfa = st.query_params.get("sayfa")
+if _sayfa in LEGAL_PAGES:
+    _baslik, _metin = LEGAL_PAGES[_sayfa]
+    st.title(_baslik)
+    st.markdown(_metin)
+    st.markdown("[← Back to ChatVexa](/)")
+    st.stop()
+
+st.sidebar.markdown(
+    "[Terms of Service](?sayfa=terms) · [Privacy Policy](?sayfa=privacy) · [Refund Policy](?sayfa=refund)"
+)
+
 # --------------------------------------------------------------------------
 # BAĞLANTI BİLGİLERİ (Environment veya Streamlit Secrets)
 # --------------------------------------------------------------------------
