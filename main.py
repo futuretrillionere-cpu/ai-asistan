@@ -88,6 +88,15 @@ This policy explains what data ChatVexa collects and how we use it.
 
 **Contact.** {LEGAL_EMAIL}
 """),
+"pricing": ("Pricing", f"""
+**ChatVexa Free:** $0. Limited daily usage.
+
+**ChatVexa Pro:** $10 per month (USD), billed monthly. Higher daily usage limits. Cancel anytime.
+
+Taxes may be added at checkout depending on your country. Payments are processed securely by Paddle, our Merchant of Record.
+
+Questions? Email {LEGAL_EMAIL}.
+"""),
 }
 
 _sayfa = st.query_params.get("sayfa")
@@ -99,7 +108,7 @@ if _sayfa in LEGAL_PAGES:
     st.stop()
 
 st.sidebar.markdown(
-    "[Terms of Service](?sayfa=terms) · [Privacy Policy](?sayfa=privacy) · [Refund Policy](?sayfa=refund)"
+    "[Pricing](?sayfa=pricing) · [Terms of Service](?sayfa=terms) · [Privacy Policy](?sayfa=privacy) · [Refund Policy](?sayfa=refund)"
 )
 
 # --------------------------------------------------------------------------
